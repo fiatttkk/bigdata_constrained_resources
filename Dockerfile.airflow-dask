@@ -1,0 +1,16 @@
+FROM apache/airflow:2.7.0
+USER root
+
+# Update and install required tools and OpenJDK-11
+RUN apt-get update && \
+    apt-get install -y procps wget iputils-ping curl && \
+    apt clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install dependencies
+USER airflow
+
+COPY requirements_for_docker.txt /tmp/requirements_for_docker.txt
+RUN pip install --user --upgrade pip
+RUN pip install --no-cache-dir --user -r /tmp/requirements_for_docker.txt
+RUN pip install dask[complete]

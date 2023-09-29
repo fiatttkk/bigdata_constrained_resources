@@ -1,0 +1,14 @@
+FROM bitnami/spark:3.3.3
+
+# Install dependencies
+USER root
+RUN apt-get update && \
+    apt-get install -y gcc curl postgresql-client && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install JBDC Driver
+RUN curl -o /opt/bitnami/spark/jars/postgresql-42.6.0.jar https://jdbc.postgresql.org/download/postgresql-42.6.0.jar
+
+COPY ./requirements_for_docker.txt /
+RUN pip install -r /requirements_for_docker.txt
