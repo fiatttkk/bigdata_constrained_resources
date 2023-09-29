@@ -10,9 +10,6 @@ __pycache__/
 logs/
 credentials/
 config/
-Dockerfile.airflow/
-Dockerfile.spark/
-docker-compose-airflow-spark.yaml/
 sampledata.py/
 requirement.txt/
 test_script.ipynb/
