@@ -1,5 +1,0 @@
-pandas
-SQLAlchemy>=1.4.0
-psycopg2-binary==2.9.6
-pyspark==3.3.3
-pyarrow
