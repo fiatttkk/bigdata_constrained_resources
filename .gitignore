@@ -16,3 +16,5 @@ test_script.ipynb
 spark_init.sh
 data/
 .DS_Store
+*.pdf
+*.drawio
