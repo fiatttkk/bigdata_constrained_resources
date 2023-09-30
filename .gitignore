@@ -11,7 +11,7 @@ logs/
 credentials/
 config/
 sampledata.py
-requirement.txt
+requirements.txt
 test_script.ipynb
 spark_init.sh
 data/
