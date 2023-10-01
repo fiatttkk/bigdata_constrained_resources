@@ -15,19 +15,6 @@ import logging
 
 logging.basicConfig(filename='/opt/airflow/logs/manual_data_processing.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Variables
-data_directory = "/opt/airflow/data/data_sample"
-fact_table_name = "fact_product_table"
-sensor_table_name = "sensor_table"
-product_table_name = "product_table"
-department_table_name = "department_table"
-conn_info = {
-        "user": "airflow",
-        "password": "airflow",
-        "host": "postgres",
-        "database": "postgres"
-        }
-
 def generate_ids(unexist_row_count, text_list, long_of_text, id_name, exist_item_list):
     logging.info("Generating Unigue IDs...")
     item_list = set(exist_item_list)
@@ -399,4 +386,4 @@ with DAG(
         task_id='end',
     )
     
-    start >> t1 >> t2 >> [t3, t4] >> end
+    start >> t1 >> end

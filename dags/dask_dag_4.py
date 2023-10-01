@@ -4,13 +4,6 @@ from airflow.operators.dummy_operator import DummyOperator
 from datetime import timedelta, datetime
 from airflow.utils.dates import days_ago
 
-# Paths and table names
-data_directory = "/opt/airflow/data/data_sample"
-fact_table_name = "fact_product_table"
-sensor_table_name = "sensor_table"
-product_table_name = "product_table"
-department_table_name = "department_table"
-
 default_args = {
     'owner': 'Fiat',
     'depends_on_past': False,
@@ -30,8 +23,8 @@ with DAG(
     )
     
     t1 = BashOperator(
-        task_id="read_data_with_dask",
-        bash_command="python3 /opt/airflow/dags/DataProcessing.py"
+        task_id="postgresql_tables_ingestion",
+        bash_command="python3 /opt/airflow/dags/MainDataIngestion.py"
     )
 
     end = DummyOperator(
