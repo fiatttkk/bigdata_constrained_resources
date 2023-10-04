@@ -21,10 +21,12 @@ class functions:
             logging.error(f"Error in generate_ids: {e}")
             
         return unique_ids
+    
+    # def generate_sonsequence_ids
 
 class processor:
     
-    def get_latest_dataframe(partition, max_create_at) :
+    def return_latest_dataframe(partition, max_create_at) :
         return partition[partition["create_at"] > max_create_at]
 
 class fetcher:
@@ -57,11 +59,15 @@ class plubisher:
             logging.info(f"Writing partition number {partition_num} to Postgresql.")
             with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
                 with StringIO() as buffer:
-                    partition.to_csv(buffer, index=index, header=header, sep='\t')
+                    partition.to_csv(buffer, index=index, header=header, sep=',')
                     buffer.seek(0)
-                    copy_query = f"COPY {table_name} FROM STDIN WITH CSV DELIMITER '\t' NULL ''"
-                    cur.copy_expert(copy_query, buffer)
-                conn.commit()
-                logging.info(f"Partition: {partition_num} uploaded successfully to PostgreSQL.")
+                    if buffer.readline() != '' :
+                        buffer.seek(0)
+                        copy_query = f"COPY {table_name} FROM STDIN WITH CSV DELIMITER ',' NULL ''"
+                        cur.copy_expert(copy_query, buffer)
+                        conn.commit()
+                        logging.info(f"Partition: {partition_num} uploaded successfully to PostgreSQL.")
+                    else :
+                        logging.info("There is no data to publish")
         except Exception as e:
             logging.error(f"Error in create_buffer_and_upload: {e}")

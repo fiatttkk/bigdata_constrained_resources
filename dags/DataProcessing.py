@@ -17,6 +17,7 @@ sensor_table_name = "sensor_table"
 product_table_name = "product_table"
 department_table_name = "department_table"
 
+
 # def generate_ids(unexist_item_list, text_list, long_of_text, id_name, exist_item_list):
 #     item_list = []
 #     while len(item_list) < len(unexist_item_list) :

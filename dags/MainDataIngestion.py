@@ -6,23 +6,24 @@ import pandas as pd
 import dask.dataframe as dd
 import dask
 import logging
-import random
 import string
-import DaskCustomFunction as dc
+import DataCustomFunction as dc
 
 logging.basicConfig(filename='/opt/airflow/logs/manual_data_processing.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def create_buffer_and_upload(partition, partition_num, conn_info, index, header, table_name):
+def create_buffer_and_upload(partition, conn_info, index, header, table_name):
     try :
-        logging.info(f"Writing partition number {partition_num} to Postgresql.")
         with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
             with StringIO() as buffer:
-                partition.to_csv(buffer, index=index, header=header, sep='\t')
+                partition.to_csv(buffer, index=index, header=header, sep=',')
                 buffer.seek(0)
-                copy_query = f"COPY {table_name} FROM STDIN WITH CSV DELIMITER '\t' NULL ''"
-                cur.copy_expert(copy_query, buffer)
-            conn.commit()
-            logging.info(f"Partition: {partition_num} uploaded successfully to PostgreSQL.")
+                if buffer.readline() != '' :
+                    buffer.seek(0)
+                    copy_query = f"COPY {table_name} FROM STDIN WITH CSV DELIMITER ',' NULL ''"
+                    cur.copy_expert(copy_query, buffer)
+                    conn.commit()
+                else :
+                    logging.info("There is no new data")
     except Exception as e:
         logging.error(f"Error in create_buffer_and_upload: {e}")
 
@@ -40,15 +41,15 @@ def fact_product_data_preparation(ddf, conn_info, table_name, key_column):
                 if data_exists:
                     logging.info("Existing data found. Identifying new data...")
                     max_create_at = dc.get_max_value_from_table(conn_info=conn_info, column_name=key_column, table_name=table_name)
-                    ddf = ddf[ddf["create_at"] > max_create_at]
+                    ddf = ddf.map_partition(dc.get_latest_dataframe, max_create_at)
                     
                 else :
-                    logging.info("No existing data found. Uploading entire dataset...")
+                    logging.info("No existing data found. Preparing entire dataset...")
 
             else:
                 logging.info(f"Table {table_name} does not exist. Creating table...")
                 sql_create_table = f'''
-                CREATE TABLE {fact_table_name} (
+                CREATE TABLE {table_name} (
                     department_name VARCHAR(255),
                     sensor_serial VARCHAR(255),
                     create_at TIMESTAMP,
@@ -58,19 +59,10 @@ def fact_product_data_preparation(ddf, conn_info, table_name, key_column):
                 '''
                 cur.execute(sql_create_table)
                 conn.commit()
-                logging.info(f"Table {fact_table_name} created. Uploading data...")
-                
-            if dc.empty_ddf(ddf) :
-                logging.info("No new data to insert.")
-            
-            else :
-                logging.info("New data existed.")
+                logging.info(f"Table {table_name} created.")
     
         except Exception as e:
             logging.error(f"Error in fact_product_data_preparation: {e}")
-            
-        finally :
-            logging.info("Fact product table ingestion is completed")
             
     return ddf
 
@@ -78,7 +70,7 @@ def sensor_data_preparation(ddf, conn_info, table_name, key_column):
     try :
         logging.info(f"Preparing {table_name} data from Main Dataframe...")
         new_data_df = ddf[['sensor_serial', 'department_name', 'product_name']].drop_duplicates(subset='sensor_serial').compute
-        logging.info(f"{table_name} data prepared.")
+        logging.info(f"{table_name} data fetched from Main Dataframe.")
         logging.info(f"Checking for existing {table_name}...")
         table_exists = dc.check_existing_table(conn_info=conn_info, table_name=table_name)
         
@@ -92,7 +84,7 @@ def sensor_data_preparation(ddf, conn_info, table_name, key_column):
                 new_data_df = new_data_df[~new_data_df['sensor_serial'].isin(existed_data_df['sensor_serial'])]
                 
             else :
-                logging.info("No existing data found. Uploading entire dataset...")
+                logging.info("No existing data found. Preparing entire dataset...")
                 
         else :
             with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
@@ -106,26 +98,25 @@ def sensor_data_preparation(ddf, conn_info, table_name, key_column):
                 cur.execute(sql_create_table)
                 conn.commit()
             
-        if dc.empty_ddf(new_data_df) :
-            logging.info("No new data to insert.")
+        if new_data_df.empty :
+            logging.info("No new data to insert. Go to next step")
+            pass
             
         else :
             logging.info("New data existed.")
+            logging.info("Sensor data preparation completed.")
+            return new_data_df
             
     except Exception as e:
         logging.error(f"Error in sensor_table_ingestion: {e}")
-            
-    finally :
-        logging.info(f"{table_name}_data preparation completed.")
-        
-    return new_data_df
         
 def product_data_preparation(ddf, conn_info, table_name, key_column, long_of_text, text_list, id_name):
     exist_ids_list = []
     try :
-        logging.info(f"Preparing {table_name} data from Main Dataframe...")
+        logging.info(f"Diagnosing {table_name} data from Main Dataframe...")
         new_data_df = ddf[['product_name']].drop_duplicates().compute()
-        logging.info(f"{table_name} data prepared.")
+        logging.info(f"{table_name} data diagnosed from Main Dataframe.")
+        logging.info(f"Waiting for IDs generator")
         logging.info(f"Checking for existing {table_name}...")
         table_exists = dc.check_existing_table(conn_info=conn_info, table_name=table_name)
         
@@ -137,10 +128,11 @@ def product_data_preparation(ddf, conn_info, table_name, key_column, long_of_tex
                 logging.info("Existing data found. Identifying new data...")
                 exist_data_df = dc.get_all_data_from_table(conn_info=conn_info, table_name=table_name)
                 exist_ids_list = exist_data_df['product_id'].to_list()
+                logging.info("Comparing identified data to existed data...")
                 new_data_df = new_data_df[~new_data_df['product_name'].isin(exist_data_df['product_name'])]
             
             else :
-                logging.info("No existing data found. Uploading entire dataset...")
+                logging.info("No existing data found. Preparing entire dataset...")
                 
         else :
             sql_create_table = f'''
@@ -152,9 +144,10 @@ def product_data_preparation(ddf, conn_info, table_name, key_column, long_of_tex
             with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
                 cur.execute(sql_create_table)
                 conn.commit()
-        
-        if dc.empty_ddf(new_data_df) :
+                
+        if new_data_df.empty :
             logging.info("No new data to insert.")
+            pass
             
         else :
             logging.info("New data existed.")
@@ -167,21 +160,18 @@ def product_data_preparation(ddf, conn_info, table_name, key_column, long_of_tex
                     )
             new_data_df['product_id'] = unique_ids
             new_data_df = new_data_df[['product_id', 'product_name']]
+            logging.info("Sensor data preparation completed.")
+            return new_data_df
         
     except Exception as e :
         logging.error(f"Error in {table_name}_ingestion: {e}")
-        
-    finally :
-        logging.info(f"{table_name}_data preparation completed.")
-        
-    return new_data_df
                 
 def department_data_preparation(ddf, conn_info, table_name, key_column, long_of_text, text_list, id_name):
     exist_ids_list = []
     try :
         logging.info(f"Preparing {table_name} data from Main Dataframe...")
         new_data_df = ddf[['department_name']].drop_duplicates().compute()
-        logging.info(f"{table_name} data prepared.")
+        logging.info(f"{table_name} data fetched from Main Dataframe.")
         logging.info(f"Checking for existing {table_name}...")
         table_exists = dc.check_existing_table(conn_info=conn_info, table_name=table_name)
         
@@ -209,8 +199,9 @@ def department_data_preparation(ddf, conn_info, table_name, key_column, long_of_
                 cur.execute(sql_create_table)
                 conn.commit()
         
-        if dc.empty_ddf(new_data_df) :
+        if new_data_df.empty :
             logging.info("No new data to insert.")
+            pass
             
         else :
             logging.info("New data existed.")
@@ -223,14 +214,11 @@ def department_data_preparation(ddf, conn_info, table_name, key_column, long_of_
                     )
             new_data_df['department_id'] = unique_ids
             new_data_df = new_data_df[['department_id', 'department_name']]
+            logging.info("Department data preparation completed.")
+            return new_data_df
         
     except Exception as e :
         logging.error(f"Error in {table_name}_ingestion: {e}")
-        
-    finally :
-        logging.info(f"{table_name}_data preparation completed.")
-        
-    return new_data_df
 
 if __name__ == "__main__" :
 
@@ -272,55 +260,45 @@ if __name__ == "__main__" :
         }
     
     try :
-        client = Client(n_workers=4, threads_per_worker=1)
+        client = Client(n_workers=1, threads_per_worker=1)
         ddf = dd.read_parquet(data_directory)
-        ddf = ddf.repartition(npartitions=128)
+        ddf = ddf.repartition(npartitions=25)
         
-        # Fact product table ingestion here
-        fact_data_ddf = ddf.map_partitions(fact_product_data_preparation,
-                                           conn_info=conn_info,
-                                           table_name=fact_table_name,
-                                           key_column=fact_key_column,
-                                           meta=meta)
-        fact_data_delayed_partitions = fact_data_ddf.to_delayed()
+        # Get
+        fact_data_ddf = ddf.map_partitions(fact_product_data_preparation, conn_info=conn_info, table_name=fact_table_name, key_column=fact_key_column, meta=meta)
+        fact_data_delayed_partitions = fact_data_ddf.partitions
         
-        for i in range(0, len(fact_data_delayed_partitions), 4) :
-            partition = dask.compute(fact_data_delayed_partitions[i:i+4])
-            create_buffer_and_upload(partition,
-                                     partition_num=i,
-                                     conn_info=conn_info,
-                                     index=False,
-                                     header=False,
-                                     table_name=fact_table_name)
+        # Compute 4 tasks at a time
+        for i in range(0, fact_data_ddf.npartitions) :
+            try :
+                logging.info(f"Writing Partition: {i} to Postgresql.")
+                partition = fact_data_delayed_partitions[i].compute()
+            
+            except Exception as e :
+                logging.error(f"Error while computing: {e}")
+            try :
+                create_buffer_and_upload(partition, conn_info=conn_info, index=False, header=False, table_name=fact_table_name)
+                logging.info(f"Partition: {i} uploaded successfully to PostgreSQL.")
         
-        # Sensor table ingestion here, return sensor dataframe
-        new_sensor_df = sensor_data_preparation(ddf,
-                                                conn_info=conn_info,
-                                                table_name=sensor_table_name,
-                                                key_column=sensor_key_column)
-        new_sensor_df.to_sql(sensor_table_name, if_exists='append', index=False)
+            except Exception as e :
+                logging.error(f"Error in Partition: {i} {e}")
         
-        # Get new data from functions
-        new_product_df = product_data_preparation(ddf,
-                                                  conn_info=conn_info,
-                                                  table_name=product_table_name,
-                                                  key_column=product_key_column,
-                                                  long_of_text=long_of_text,
-                                                  text_list=text_list,
-                                                  id_name=product_id_name)
-        new_department_df = department_data_preparation(ddf,
-                                                     conn_info=conn_info,
-                                                     table_name=department_table_name,
-                                                     key_column=department_key_column,
-                                                     long_of_text=long_of_text,
-                                                     text_list=text_list,
-                                                     id_name=department_id_name)
+        # Get new sensor data form function and upload with create buffer and up load function
+        new_sensor_df = sensor_data_preparation(ddf, conn_info=conn_info, table_name=sensor_table_name, key_column=sensor_key_column)
+        create_buffer_and_upload(new_sensor_df, conn_info=conn_info, index=False, header=False, table_name=sensor_table_name)
         
-        # Upload to postgresql
-        logging.info(f"Uploading data to {product_table_name}")
-        new_product_df.to_sql(product_table_name,  if_exists='append', index=False)
-        logging.info(f"Uploading data to {department_table_name}")
-        new_department_df.to_sql(department_table_name,  if_exists='append', index=False)
+        # Get new product data and department data from functions
+        new_product_df = product_data_preparation(ddf, conn_info=conn_info, table_name=product_table_name, key_column=product_key_column, long_of_text=long_of_text, text_list=text_list, id_name=product_id_name)
+        new_department_df = department_data_preparation(ddf, conn_info=conn_info, table_name=department_table_name, key_column=department_key_column, long_of_text=long_of_text, text_list=text_list, id_name=department_id_name)
+        
+        # Upload new product data and department data to postgresql
+        with create_engine(conn_url) as engine :
+            logging.info(f"Uploading data to {product_table_name}...")
+            new_product_df.to_sql(product_table_name, engine,  if_exists='append', index=False)
+            logging.info(f"Uploaded data to {product_table_name} successfully.")
+            logging.info(f"Uploading data to {department_table_name}...")
+            new_department_df.to_sql(department_table_name, engine,  if_exists='append', index=False)
+            logging.info(f"Uploaded data to {department_table_name} successfully.")
         
     except Exception as e :
         logging.error(f"Error in script: {e}")
