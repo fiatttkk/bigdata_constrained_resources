@@ -113,16 +113,15 @@ def sensor_table_ingestion(data_directory, conn_info, conn_url, table_name, key_
                 else :
                     logging.info("No existing data found. Preparing entire dataset...")
             else :
-                with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
-                    sql_create_table = f'''
-                    CREATE TABLE {table_name} (
-                        sensor_serial VARCHAR(255),
-                        department_name VARCHAR(255),
-                        product_name VARCHAR(255)
-                    );
-                    '''
-                    cur.execute(sql_create_table)
-                    conn.commit()
+                sql_create_table = f'''
+                CREATE TABLE {table_name} (
+                    sensor_serial VARCHAR(255),
+                    department_name VARCHAR(255),
+                    product_name VARCHAR(255)
+                );
+                '''
+                cur.execute(sql_create_table)
+                conn.commit()
             
             result_df = new_data_df.compute()
             
@@ -131,8 +130,9 @@ def sensor_table_ingestion(data_directory, conn_info, conn_url, table_name, key_
             else :
                 logging.info("New data existed.")
                 logging.info(f"Writing data to {table_name}...")
-                with create_engine(conn_url) as engine :
-                    result_df.to_sql(table_name, engine, if_exists='append', index=False)
+                engine = create_engine(conn_url)
+                result_df.to_sql(table_name, engine, if_exists='append', index=False)
+                engine.dispose()
                 
         except Exception as e:
             logging.error(f"Error in sensor_table_ingestion: {e}")
@@ -169,15 +169,14 @@ def product_table_ingestion(data_directory, conn_info, conn_url, table_name, key
                     logging.info("No existing data found. Preparing entire dataset...")
                     
             else :
-                with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
-                    sql_create_table = f'''
-                    CREATE TABLE {table_name} (
-                        product_id VARCHAR(255),
-                        product_name VARCHAR(255)
-                    )
-                    '''
-                    cur.execute(sql_create_table)
-                    conn.commit()
+                sql_create_table = f'''
+                CREATE TABLE {table_name} (
+                    product_id VARCHAR(255),
+                    product_name VARCHAR(255)
+                )
+                '''
+                cur.execute(sql_create_table)
+                conn.commit()
             
             result_df = new_data_df.compute()
             
@@ -194,8 +193,9 @@ def product_table_ingestion(data_directory, conn_info, conn_url, table_name, key
                     exist_item_list=exist_ids_list
                 )
                 result_df["product_id"] = unique_ids
-                with create_engine(conn_url) as engine :
-                    result_df.to_sql(table_name, engine, if_exists='append', index=False)
+                engine = create_engine(conn_url)
+                result_df.to_sql(table_name, engine, if_exists='append', index=False)
+                engine.dispose()
             
         except Exception as e :
             logging.error(f"Error in product_table_ingestion: {e}")
@@ -232,15 +232,14 @@ def department_table_ingestion(data_directory, conn_info, conn_url, table_name, 
                     logging.info("No existing data found. Preparing entire dataset...")
                     
             else :
-                with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
-                    sql_create_table = f'''
-                    CREATE TABLE {table_name} (
-                        department_id VARCHAR(255),
-                        department_name VARCHAR(255)
-                    )
-                    '''
-                    cur.execute(sql_create_table)
-                    conn.commit()
+                sql_create_table = f'''
+                CREATE TABLE {table_name} (
+                    department_id VARCHAR(255),
+                    department_name VARCHAR(255)
+                )
+                '''
+                cur.execute(sql_create_table)
+                conn.commit()
             
             result_df = new_data_df.compute()
             
@@ -257,8 +256,9 @@ def department_table_ingestion(data_directory, conn_info, conn_url, table_name, 
                     exist_item_list=exist_ids_list
                 )
                 result_df["department_id"] = unique_ids
-                with create_engine(conn_url) as engine :
-                    result_df.to_sql(table_name, engine, if_exists='append', index=False)
+                engine = create_engine(conn_url)
+                result_df.to_sql(table_name, engine, if_exists='append', index=False)
+                engine.dispose()
             
         except Exception as e :
             logging.error(f"Error in department_table_ingestion: {e}")
@@ -337,4 +337,4 @@ with DAG(
         task_id='end',
     )
     
-    start >> t1 >> t2 >> [t3, t4] >> end
+    start >> t1 >> t2 >> t3 >> t4 >> end
