@@ -29,6 +29,10 @@ fact_key_column = "create_at"
 sensor_key_column = "sensor_serial"
 product_key_column = "product_name"
 department_key_column = "department_name"
+product_id_column = "product_id"
+department_id_column = "department_id"
+product_id_name = "pid-"
+department_id_name = "did-"
 
 # Schema information for partitions
 meta = pd.DataFrame(columns=['department_name',
@@ -87,9 +91,9 @@ def fact_product_table_ingestion(data_directory, conn_info, table_name, key_colu
                 plubisher.create_buffer_and_upload(partition.compute(), partition_num=i, conn_info=conn_info, index=False, header=False, table_name=table_name)
     
         except Exception as e:
-            logging.error(f"Error in fact_product_data_ingestion: {e}")
+            logging.error(f"Error in {table_name}_ingestion: {e}")
         finally :
-            logging.info(f"fact_product_data_ingestion completed.")
+            logging.info(f"{table_name}_ingestion completed.")
             client.close()
             logging.info(f"Dask client closed.")
 
@@ -100,7 +104,7 @@ def sensor_table_ingestion(data_directory, conn_info, conn_url, table_name, key_
     with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
         logging.info("Connected to PostgreSQL.")
         try :
-            new_data_df = ddf[['sensor_serial', 'department_name', 'product_name']].drop_duplicates(subset='sensor_serial')
+            new_data_df = ddf[['sensor_serial', 'department_name', 'product_name']].drop_duplicates(subset=key_column)
             table_exists = fetcher.check_existing_table(conn_info=conn_info, table_name=table_name)
             if table_exists :
                 logging.info(f"Table {table_name} exists. Checking for existing data...")
@@ -109,7 +113,7 @@ def sensor_table_ingestion(data_directory, conn_info, conn_url, table_name, key_
                     logging.info("Existing data found.")
                     exists_data_df = fetcher.get_all_data_from_table(conn_info=conn_info, table_name=table_name)
                     logging.info("Identifying new data...")
-                    new_data_df = new_data_df[~new_data_df['sensor_serial'].isin(exists_data_df['sensor_serial'])]
+                    new_data_df = new_data_df[~new_data_df[key_column].isin(exists_data_df[key_column])]
                 else :
                     logging.info("No existing data found. Preparing entire dataset...")
             else :
@@ -135,24 +139,24 @@ def sensor_table_ingestion(data_directory, conn_info, conn_url, table_name, key_
                 engine.dispose()
                 
         except Exception as e:
-            logging.error(f"Error in sensor_table_ingestion: {e}")
+            logging.error(f"Error in {table_name}_ingestion: {e}")
         finally :
-            logging.info("sensor_table_ingestion completed")
+            logging.info(f"{table_name}_ingestion completed")
             client.close()
             logging.info(f"Dask client closed.")
         
-def product_table_ingestion(data_directory, conn_info, conn_url, table_name, key_column):
+def ids_table_ingestion(conn_info, conn_url, id_name,  table_name, id_column, key_column):
+    long_of_text = 16
+    text_list = list(string.ascii_lowercase + string.digits)
+    id_name = id_name
+    exist_ids_list = []
     client = Client(processes=False, n_workers=1, threads_per_worker=1)
     logging.info(f"Connected to Dask Client.")
     ddf = dd.read_parquet(data_directory)
-    long_of_text = 16
-    text_list = list(string.ascii_lowercase + string.digits)
-    id_name = "pid-"
-    exist_ids_list = []
     with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
         logging.info("Connected to PostgreSQL.")
         try :
-            new_data_df = ddf[['product_name']].drop_duplicates()
+            new_data_df = ddf[[key_column]].drop_duplicates()
             table_exists = fetcher.check_existing_table(conn_info=conn_info, table_name=table_name)
             if table_exists :
                 logging.info(f"Table {table_name} exists. Checking for existing data...")
@@ -161,9 +165,9 @@ def product_table_ingestion(data_directory, conn_info, conn_url, table_name, key
                     logging.info("Existing data found.")
                     exists_data_df = fetcher.get_all_data_from_table(conn_info=conn_info, table_name=table_name)
                     logging.info("Identifying new data...")
-                    exist_ids_list = exists_data_df['product_id'].to_list()
+                    exist_ids_list = exists_data_df[id_column].to_list()
                     logging.info("Comparing identified data to existed data...")
-                    new_data_df = new_data_df[~new_data_df['product_name'].isin(exists_data_df['product_name'])]
+                    new_data_df = new_data_df[~new_data_df[key_column].isin(exists_data_df[key_column])]
                     
                 else :
                     logging.info("No existing data found. Preparing entire dataset...")
@@ -171,8 +175,8 @@ def product_table_ingestion(data_directory, conn_info, conn_url, table_name, key
             else :
                 sql_create_table = f'''
                 CREATE TABLE {table_name} (
-                    product_id VARCHAR(255),
-                    product_name VARCHAR(255)
+                    {id_column} VARCHAR(255),
+                    {key_column} VARCHAR(255)
                 )
                 '''
                 cur.execute(sql_create_table)
@@ -192,78 +196,15 @@ def product_table_ingestion(data_directory, conn_info, conn_url, table_name, key
                     id_name=id_name,
                     exist_item_list=exist_ids_list
                 )
-                result_df["product_id"] = unique_ids
+                result_df[id_column] = unique_ids
                 engine = create_engine(conn_url)
                 result_df.to_sql(table_name, engine, if_exists='append', index=False)
                 engine.dispose()
             
         except Exception as e :
-            logging.error(f"Error in product_table_ingestion: {e}")
+            logging.error(f"Error in {table_name}_ingestion: {e}")
         finally :
-            logging.info("product_table_ingestion completed")
-            client.close()
-            logging.info(f"Dask client closed.")
-                
-def department_table_ingestion(data_directory, conn_info, conn_url, table_name, key_column):
-    client = Client(processes=False, n_workers=1, threads_per_worker=1)
-    logging.info(f"Connected to Dask Client.")
-    ddf = dd.read_parquet(data_directory)
-    long_of_text = 16
-    text_list = list(string.ascii_lowercase + string.digits)
-    id_name = "did-"
-    exist_ids_list = []
-    with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
-        logging.info("Connected to PostgreSQL.")
-        try :
-            new_data_df = ddf[['department_name']].drop_duplicates()
-            table_exists = fetcher.check_existing_table(conn_info=conn_info, table_name=table_name)
-            if table_exists :
-                logging.info(f"Table {table_name} exists. Checking for existing data...")
-                data_exists = bool(fetcher.get_max_value_from_table(conn_info=conn_info, column_name=key_column, table_name=table_name))
-                if data_exists :
-                    logging.info("Existing data found.")
-                    exists_data_df = fetcher.get_all_data_from_table(conn_info=conn_info, table_name=table_name)
-                    logging.info("Identifying new data...")
-                    exist_ids_list = exists_data_df['department_id'].to_list()
-                    logging.info("Comparing identified data to existed data...")
-                    new_data_df = new_data_df[~new_data_df['department_name'].isin(exists_data_df['department_name'])]
-                    
-                else :
-                    logging.info("No existing data found. Preparing entire dataset...")
-                    
-            else :
-                sql_create_table = f'''
-                CREATE TABLE {table_name} (
-                    department_id VARCHAR(255),
-                    department_name VARCHAR(255)
-                )
-                '''
-                cur.execute(sql_create_table)
-                conn.commit()
-            
-            result_df = new_data_df.compute()
-            
-            if result_df.empty :
-                logging.info("There is no data to publish")
-            else :
-                logging.info("New data existed.")
-                logging.info(f"Writing data to {table_name}...")
-                unique_ids = functions.generate_random_char_ids(
-                    unexist_row_count=len(new_data_df.index),
-                    text_list=text_list,
-                    long_of_text=long_of_text,
-                    id_name=id_name,
-                    exist_item_list=exist_ids_list
-                )
-                result_df["department_id"] = unique_ids
-                engine = create_engine(conn_url)
-                result_df.to_sql(table_name, engine, if_exists='append', index=False)
-                engine.dispose()
-            
-        except Exception as e :
-            logging.error(f"Error in department_table_ingestion: {e}")
-        finally :
-            logging.info("department_table_ingestion completed")
+            logging.info(f"{table_name}_ingestion completed")
             client.close()
             logging.info(f"Dask client closed.")
 
@@ -311,24 +252,26 @@ with DAG(
     
     t3 = PythonOperator(
         task_id="product_table_ingestion",
-        python_callable=product_table_ingestion,
+        python_callable=ids_table_ingestion,
         op_kwargs={
-            "data_directory": data_directory,
             "conn_info": conn_info,
             "conn_url": conn_url,
+            "id_name": product_id_name, 
             "table_name": product_table_name,
+            "id_column": product_id_column,
             "key_column": product_key_column
         }
     )
     
     t4 = PythonOperator(
         task_id="department_table_ingestion",
-        python_callable=department_table_ingestion,
+        python_callable=ids_table_ingestion,
         op_kwargs={
-            "data_directory": data_directory,
             "conn_info": conn_info,
             "conn_url": conn_url,
+            "id_name": department_id_name, 
             "table_name": department_table_name,
+            "id_column": department_id_column,
             "key_column": department_key_column
         }
     )
