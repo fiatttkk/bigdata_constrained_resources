@@ -145,7 +145,7 @@ def sensor_table_ingestion(data_directory, conn_info, conn_url, table_name, key_
             client.close()
             logging.info(f"Dask client closed.")
         
-def ids_table_ingestion(conn_info, conn_url, id_name,  table_name, id_column, key_column):
+def ids_table_ingestion(data_directory, conn_info, conn_url, id_name,  table_name, id_column, key_column):
     long_of_text = 16
     text_list = list(string.ascii_lowercase + string.digits)
     id_name = id_name
@@ -254,6 +254,7 @@ with DAG(
         task_id="product_table_ingestion",
         python_callable=ids_table_ingestion,
         op_kwargs={
+            "data_directory": data_directory,
             "conn_info": conn_info,
             "conn_url": conn_url,
             "id_name": product_id_name, 
@@ -267,6 +268,7 @@ with DAG(
         task_id="department_table_ingestion",
         python_callable=ids_table_ingestion,
         op_kwargs={
+            "data_directory": data_directory,
             "conn_info": conn_info,
             "conn_url": conn_url,
             "id_name": department_id_name, 
