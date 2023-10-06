@@ -56,7 +56,7 @@ class plubisher:
 
     def create_buffer_and_upload(partition, partition_num, conn_info, index, header, table_name):
         try :
-            logging.info(f"Writing partition number {partition_num} to Postgresql.")
+            logging.info(f"Writing partition number {partition_num + 1} to Postgresql.")
             with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
                 with StringIO() as buffer:
                     partition.to_csv(buffer, index=index, header=header, sep=',')
@@ -66,7 +66,7 @@ class plubisher:
                         copy_query = f"COPY {table_name} FROM STDIN WITH CSV DELIMITER ',' NULL ''"
                         cur.copy_expert(copy_query, buffer)
                         conn.commit()
-                        logging.info(f"Partition: {partition_num} uploaded successfully to PostgreSQL.")
+                        logging.info(f"Partition: {partition_num + 1} uploaded successfully to PostgreSQL.")
                     else :
                         logging.info("There is no data to publish")
         except Exception as e:

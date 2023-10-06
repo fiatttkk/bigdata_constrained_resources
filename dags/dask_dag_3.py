@@ -56,7 +56,7 @@ def fact_product_table_ingestion(data_directory, conn_info, table_name, key_colu
     client = Client(processes=False, n_workers=1, threads_per_worker=1)
     logging.info(f"Connected to Dask Client.")
     ddf = dd.read_parquet(data_directory)
-    ddf = ddf.repartition(npartitions=30)
+    ddf = ddf.repartition(npartitions=50)
     with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
         logging.info(f"Connected to PostgreSQL.")
         try :

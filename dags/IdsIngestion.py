@@ -18,7 +18,7 @@ def ids_table_ingestion(ddf, conn_info, conn_url, id_name,  table_name, id_colum
     with psycopg2.connect(**conn_info) as conn, conn.cursor() as cur :
         logging.info("Connected to PostgreSQL.")
         try :
-            new_data_df = ddf[[key_column]].drop_duplicates()
+            new_data_df = ddf[[key_column]].drop_duplicates().compute()
             table_exists = fetcher.check_existing_table(conn_info=conn_info, table_name=table_name)
             if table_exists :
                 logging.info(f"Table {table_name} exists. Checking for existing data...")
@@ -44,9 +44,7 @@ def ids_table_ingestion(ddf, conn_info, conn_url, id_name,  table_name, id_colum
                 cur.execute(sql_create_table)
                 conn.commit()
             
-            result_df = new_data_df.compute()
-            
-            if result_df.empty :
+            if new_data_df.empty :
                 logging.info("There is no data to publish")
             else :
                 logging.info("New data existed.")
@@ -58,9 +56,9 @@ def ids_table_ingestion(ddf, conn_info, conn_url, id_name,  table_name, id_colum
                     id_name=id_name,
                     exist_item_list=exist_ids_list
                 )
-                result_df[id_column] = unique_ids
+                new_data_df[id_column] = unique_ids
                 engine = create_engine(conn_url)
-                result_df.to_sql(table_name, engine, if_exists='append', index=False)
+                new_data_df.to_sql(table_name, engine, if_exists='append', index=False)
                 engine.dispose()
             
         except Exception as e :
