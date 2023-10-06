@@ -13,7 +13,7 @@ default_args = {
 }
 
 with DAG(
-    'dask_dag_4',
+    'dask_multiprocesses_dag',
     default_args=default_args,
     schedule_interval='@weekly'
     )as dag:
